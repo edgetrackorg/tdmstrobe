@@ -50,11 +50,11 @@ Assume every stereo rig runs at **120 FPS**. Then each rig has a frame period of
 
 To avoid overlap, we apply a fixed **phase offset** within the 8.33 ms frame period:
 
-- **Rig 0 → Phase A:** offset **0.000 ms → 2.082 ms**
-- **Rig 1 → Phase B:** offset **2.083 ms → 4.166 ms** 
-- **Rig 2 → Phase C:** offset **4.167 ms → 6.249 ms** 
-- **Rig 3 → Phase D:** offset **6.250 ms → 8.332 ms** 
-- **Rig 0 → Phase A:** offset **8.333 ms → next frame** 
+- **Rig 1 → Phase A:** offset **0.000 ms → 2.082 ms**
+- **Rig 2 → Phase B:** offset **2.083 ms → 4.166 ms** 
+- **Rig 3 → Phase C:** offset **4.167 ms → 6.249 ms** 
+- **Rig 4 → Phase D:** offset **6.250 ms → 8.332 ms** 
+- **Rig 1 → Phase A:** offset **8.333 ms → next frame** 
 
 
 ### Phase shift animation
@@ -66,20 +66,20 @@ To avoid overlap, we apply a fixed **phase offset** within the 8.33 ms frame per
 ## System Overview (Example: 4 Stereo Rigs)
 
 ```
-PC (Host) ── Ethernet/RJ45 ─► EdgeTrack1 ──► UART ──► TDMStrobe1 (RP2040) as Master
-PC (Host) ── Ethernet/RJ45 ─► EdgeTrack2 ──► UART ──► TDMStrobe2 (RP2040) as Slave
-PC (Host) ── Ethernet/RJ45 ─► EdgeTrack3 ──► UART ──► TDMStrobe3 (RP2040) as Slave
-PC (Host) ── Ethernet/RJ45 ─► EdgeTrack4 ──► UART ──► TDMStrobe4 (RP2040) as Slave
+PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 1 ──► UART ──► TDMStrobe Rig 1 (RP2040) as Master
+PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 2 ──► UART ──► TDMStrobe Rig 2 (RP2040) as Slave
+PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 3 ──► UART ──► TDMStrobe Rig 3 (RP2040) as Slave
+PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► TDMStrobe Rig 4 (RP2040) as Slave
 
-           TDMStrobe1      TDMStrobe2      TDMStrobe3      TDMStrobe4
-               ↓               ↓               ↓               ↓
-             UART            UART            UART            UART
-               ↓               ↓               ↓               ↓
-            SP3485          SP3485          SP3485          SP3485
-               ↓               ↓               ↓               ↓
-             RS485           RS485           RS485           RS485  
-               ↓               ↓               ↓               ↓
-12ΩΩ    →    2xRJ45    ↔     2xRJ45    ↔     2xRJ45    ↔     2xRJ45    ←    120Ω
+        TDMStrobe Rig 1     TDMStrobe Rig 2     TDMStrobe Rig 3     TDMStrobe Rig 4
+               ↓                   ↓                   ↓                   ↓
+             UART                UART                UART                UART
+               ↓                   ↓                   ↓                   ↓
+            SP3485              SP3485              SP3485              SP3485
+               ↓                   ↓                   ↓                   ↓
+             RS485               RS485               RS485               RS485  
+               ↓                   ↓                   ↓                   ↓
+120Ω    →    2xRJ45      ↔       2xRJ45      ↔       2xRJ45      ↔       2xRJ45    ←    120Ω
 ```
 
 * **Up to 4 stereo rigs** (expandable hub style). With 3 or more rigs, up to **8 trigger ports** are available from a “Master” stereo pair fan‑out.
