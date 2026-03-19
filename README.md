@@ -77,7 +77,7 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► T
                ↓                   ↓                   ↓                   ↓
               33Ω                 33Ω                 33Ω                 33Ω
                ↓                   ↓                   ↓                   ↓                              
-             2xRJ45      ↔       2xRJ45      ↔       2xRJ45      ↔       2xRJ45
+             2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45
 ```
 
 * **Up to 4 stereo rigs** (expandable hub style). With 3 or more rigs, up to **8 trigger ports** are available from a “Master” stereo pair fan‑out.
