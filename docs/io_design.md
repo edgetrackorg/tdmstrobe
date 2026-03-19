@@ -2,7 +2,7 @@
 
 This document describes the electrical wiring, GPIO signals, and UART protocol
 used between the Raspberry Pi 5, RP2040, and connected modules (sensor, LED driver,
-and RS-485 bus).  
+and Daysi Chain).  
 The goal is deterministic timing, simple debugging, and scalable multi-module sync.
 
 ---
@@ -13,38 +13,60 @@ The goal is deterministic timing, simple debugging, and scalable multi-module sy
 
 Main communication (parameters, mode, dimmer, delays, etc.)
 
-| RP2040 | Raspberry Pi 5 | Description |
-|---|---|---|
-| UART0 TX (1) | UART RX (GPIO15 / pin 10) | UART communication |
-| UART0 RX (2) | UART TX (GPIO14 / pin 8) | UART communication |
-| GND (3) | GND (pin 14) | Ground |
-| GP2 (4) | GPIO5 (pin 29) | ARM / enable signal |
-| GP3 (5) | GPIO6 (pin 31) | Status heartbeat |
+| RP2040       | Raspberry Pi 5            | Description         |
+|--------------|---------------------------|---------------------|
+| UART0 TX (1) | UART RX (GPIO15 / pin 10) | UART communication  |
+| UART0 RX (2) | UART TX (GPIO14 / pin 8)  | UART communication  |
+| GND (3)      | GND (pin 14)              | Ground              |
+| GP2 (4)      | GPIO5 (pin 29)            | ARM / enable signal |
+| GP3 (5)      | GPIO6 (pin 31)            | Status heartbeat    |
 
 ---
 
-### RP2040 ↔ SP3485 (RS-485)
+### RP2040 ↔ RP2040 (Daysi Chain)
 
 Used for module-to-module communication.
 
-| RP2040 | SP3485 | Description |
-|---|---|---|
-| 3V3 (36) | VCC (3–5V) | Power |
-| GND (13) | GND | Ground |
-| UART1 TX (11) | RXI | Data TX |
-| UART1 RX (12) | TXO | Data RX |
-| GP7 (10) | RTX | TX/RX direction control |
+| RP2040             | RP2040                | Description |
+|--------------------|-----------------------|-------------|
+| GND (8)            | GND (8)               | Common      |
+| GP6 (9) (via 33Ω)  | GP6 (9) (via 33Ω)     | DATA        |
+| GP7 (10) (via 33Ω) | GP7 (10) (via 33Ω)    | CLOCK       |
+| GP8 (11) (via 33Ω) | GP8 (11) (via 33Ω)    | SYNC        |
 
 ---
 
 ### RP2040 ↔ AL8843Q LED Driver
 
-PWM dimmer control for LED strobe.
+PWM based dimming control for LED strobe intensity.
 
-| RP2040 | AL8843Q | Description |
-|---|---|---|
-| GND (28) | GND | Ground |
-| GP21 (27) | CTRL (via RC filter) | PWM dimmer (0.3–2.5 V) |
+#### Driver 1
+
+| RP2040    | AL8843Q              | Description                   |
+| --------- | -------------------- | ----------------------------- |
+| GND (28)  | GND                  | Ground                        |
+| GP18 (24) | CTRL (via RC filter) | PWM dimming input (0.3–2.5 V) |
+
+#### Driver 2
+
+| RP2040    | AL8843Q              | Description                   |
+| --------- | -------------------- | ----------------------------- |
+| GND (28)  | GND                  | Ground                        |
+| GP19 (25) | CTRL (via RC filter) | PWM dimming input (0.3–2.5 V) |
+
+#### Driver 3
+
+| RP2040    | AL8843Q              | Description                   |
+| --------- | -------------------- | ----------------------------- |
+| GND (28)  | GND                  | Ground                        |
+| GP20 (26) | CTRL (via RC filter) | PWM dimming input (0.3–2.5 V) |
+
+#### Driver 4
+
+| RP2040    | AL8843Q              | Description                   |
+| --------- | -------------------- | ----------------------------- |
+| GND (28)  | GND                  | Ground                        |
+| GP21 (27) | CTRL (via RC filter) | PWM dimming input (0.3–2.5 V) |
 
 ---
 
@@ -52,11 +74,11 @@ PWM dimmer control for LED strobe.
 
 Trigger and feedback signals.
 
-| RP2040 | OV9281 | Description |
-|---|---|---|
-| GND (23) | GND | Ground |
-| GP17 (22) | FSTROBE | Sensor feedback (output from sensor) |
-| GP16 (21) | XVS | Trigger signal (input to sensor) |
+| RP2040    | OV9281      | Description                          |
+|-----------|-------------|--------------------------------------|
+| GND (18)  | GND         | Ground                               |
+| GP14 (19) | FSTROBE     | Sensor feedback (output from sensor) |
+| GP15 (20) | XVS         | Trigger signal (input to sensor)     |
 
 ---
 

@@ -20,7 +20,7 @@
 - **Deterministic timing on the MCU:** the host only sets parameters; the MCU executes trigger + strobe timing with microsecond-level determinism.
 - **Deterministic lighting** for global-shutter stereo/triangulation.
 - **TDM (A/B/C/D) phase scheduling** prevents cross-illumination between stereo pairs.
-- **Low-latency trigger fan-out** with a simple 2-wire sync option (for chaining / multi-node setups).
+- **Low-latency trigger fan-out** with a simple 4-wire sync option (for chaining / multi-node setups).
 - **Integrated dimming** (global & per-channel) for fine-grained brightness control.
 
 
@@ -71,19 +71,169 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 2 ──► UART ──► T
 PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 3 ──► UART ──► TDMStrobe Rig 3 (RP2040) as Slave
 PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► TDMStrobe Rig 4 (RP2040) as Slave
 
+                               *** Daisy Chain ***
+
         TDMStrobe Rig 1     TDMStrobe Rig 2     TDMStrobe Rig 3     TDMStrobe Rig 4
                ↓                   ↓                   ↓                   ↓
-             UART                UART                UART                UART
-               ↓                   ↓                   ↓                   ↓
-            SP3485              SP3485              SP3485              SP3485
-               ↓                   ↓                   ↓                   ↓
-             RS485               RS485               RS485               RS485  
-               ↓                   ↓                   ↓                   ↓
-120Ω    →    2xRJ45      ↔       2xRJ45      ↔       2xRJ45      ↔       2xRJ45    ←    120Ω
+              33Ω                 33Ω                 33Ω                 33Ω
+               ↓                   ↓                   ↓                   ↓                              
+             2xRJ45      ↔       2xRJ45      ↔       2xRJ45      ↔       2xRJ45
 ```
 
 * **Up to 4 stereo rigs** (expandable hub style). With 3 or more rigs, up to **8 trigger ports** are available from a “Master” stereo pair fan‑out.
 * **UART control** from **Pi 5** (which later exposes a LAN control page/API). Centralized settings for the **whole multi‑stereo setup**; TDMStrobe focuses on lighting/trigger only (including **continuous dimming**).
+
+---
+
+## 🔌 Sync Bus Design (DATA, CLOCK, SYNC)
+
+The TDMStrobe nodes are connected using a **simple 4-wire daisy-chain bus**:
+
+* **DATA** — configuration bits (e.g. phase mask)
+* **CLOCK** — bit timing
+* **SYNC** — frame start trigger (critical for timing)
+* **GND** — common reference
+
+### Bus Topology
+
+The system uses a **daisy-chain wiring approach** for simplicity and minimal connectors:
+
+```
+Master → Rig → Rig → Rig
+```
+
+All signals are forwarded along the chain. Each node taps into the same shared lines.
+
+---
+
+## ⚠️ Master / Slave Behavior (Critical)
+
+At any given time:
+
+> **Exactly one node is allowed to actively drive the bus.**
+
+### Default state (safe mode)
+
+All nodes are configured as:
+
+```
+DATA  → INPUT (high impedance)
+CLOCK → INPUT
+SYNC  → INPUT
+```
+
+This ensures that no device drives the lines unintentionally.
+
+---
+
+### When a node is selected as Master
+
+Only the selected master node switches to:
+
+```
+DATA  → OUTPUT
+CLOCK → OUTPUT
+SYNC  → OUTPUT
+```
+
+All other nodes **must remain in INPUT mode**.
+
+---
+
+### ⚠️ Why this is critical
+
+If two nodes drive the same line simultaneously:
+
+* electrical contention occurs (one drives HIGH, another LOW)
+* large currents may flow between GPIOs
+* signal integrity is destroyed
+* hardware damage is possible
+
+> **Therefore, slaves must never be configured as OUTPUT while another master is active.**
+
+---
+
+### Safe Master Switching
+
+When changing the master node:
+
+1. Previous master:
+
+   ```
+   OUTPUT → INPUT
+   ```
+2. Short delay (a few µs)
+3. New master:
+
+   ```
+   INPUT → OUTPUT
+   ```
+
+This prevents bus contention.
+
+---
+
+## 🔧 Series Resistors (33Ω)
+
+For a symmetrical modular design, each shared signal line includes a **33Ω series resistor on every module**:
+
+```text
+Driver → 33Ω → Wire → 33Ω → Input
+```
+
+This keeps the hardware identical across all nodes, improves signal integrity, and adds basic protection against contention or wiring mistakes.
+
+### Purpose
+
+* reduces signal ringing (especially on cables)
+* limits current during transient conflicts
+* improves signal integrity over 2–5 m cables
+* protects GPIO pins
+
+---
+
+## ⏱️ Deterministic Timing
+
+* **CLOCK + DATA** are used to distribute configuration bits
+* **SYNC is the authoritative timing signal**
+
+> All timing-critical actions (exposure, strobe) are triggered from the **SYNC edge**, not from DATA or CLOCK.
+
+Each node:
+
+1. receives configuration via DATA/CLOCK
+2. waits for SYNC
+3. executes its local phase-offset timing deterministically
+
+---
+
+## 🧠 Design Rationale
+
+This architecture intentionally avoids:
+
+* complex bus protocols (CAN, RS485)
+* multi-master arbitration
+* software-dependent synchronization
+
+Instead it uses:
+
+* a **single-master broadcast model**
+* **hardware-level synchronization (SYNC)**
+* **local deterministic timing on each MCU**
+
+This results in:
+
+* microsecond-level reproducibility
+* minimal latency
+* simple and debuggable behavior
+
+---
+
+## 💡 Notes
+
+* Cable lengths of **2–5 m** are supported with proper grounding and series resistors
+* RJ45/Cat5 is suitable for routing the 4-wire bus
+* For larger systems or harsher environments, differential signaling (e.g. RS485) may be considered
 
 ---
 
@@ -92,7 +242,6 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► T
 ### MCU / Control
 
 * 1× **Raspberry Pi Pico (RP2040)** — controller for **TDMStrobe**
-* 1× **SP3485** — RS-485 transceiver for multi-device timing synchronization
 * 1× **24 V power supply (PSU)**
 * 1× **24 V → 5 V buck converter** (for Raspberry Pi 5 / 5 V rail)
 * 1× **RC filter** for PWM smoothing (analog dimming / noise reduction)
@@ -110,16 +259,6 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► T
 
 ---
 
-## BOM for Serial Production
-
-* 1× **RP2040** — TDMStrobe controller
-* 8× **AL8843Q** — constant-current LED driver channels
-* 2× **AS1170** — VCSEL driver channels
-* 1× **SP3485** — RS-485 transceiver for multi-device timing synchronization
-* Supporting components: **inductors**, **current-sense resistors (R-sense)**, and **ceramic capacitors**
-
----
-
 ### Note: Why not LED COB arrays?
 
 COB arrays look convenient, but they are inefficient for deterministic, strobed NIR illumination. They generate significant heat, often require large optics to shape the beam, and make thermal/mechanical integration harder in compact rigs. Discrete emitters on MCPCBs scale better, cool faster, and allow tighter control over beam pattern, timing, and power distribution.
@@ -128,7 +267,7 @@ COB arrays look convenient, but they are inefficient for deterministic, strobed 
 
 ## Sync & Timing
 
-* **Click‑Stereo (2‑wire)**: distributed **EXPOSE/FLASH** and **phase** markers A/B (optionally C/D)
+* **Daisy Chain (DATA, CLOCK, and SYNC)**: distributed **EXPOSE/FLASH** and **phase** markers A/B (optionally C/D)
 * **Global‑shutter** preferred. For rolling‑shutter, use frame‑interleaved TDM or long enough pulses to cover row exposure
 * Typical: **120 Hz** frames; **0.8–1.2 ms** exposure; **200–800 µs** strobe pulses
 
