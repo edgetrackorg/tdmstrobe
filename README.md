@@ -75,9 +75,9 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► T
 
         TDMStrobe Rig 1     TDMStrobe Rig 2     TDMStrobe Rig 3     TDMStrobe Rig 4
                ↓                   ↓                   ↓                   ↓
-              33Ω                 33Ω                 33Ω                 33Ω
+             RS485               RS485               RS485               RS485 
                ↓                   ↓                   ↓                   ↓                              
-             2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45
+    120Ω  →  2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45   ← wire →   2xRJ45  →  120Ω
 ```
 
 * **Up to 4 stereo rigs** (expandable hub style). With 3 or more rigs, up to **8 trigger ports** are available from a “Master” stereo pair fan‑out.
@@ -85,155 +85,175 @@ PC (Host) ── Ethernet/RJ45 ─► EdgeTrack Rig 4 ──► UART ──► T
 
 ---
 
-## 🔌 Sync Bus Design (DATA, CLOCK, SYNC)
+## 🔌 Sync Bus Design (RS-485, GPIO-based, deterministic)
 
-The TDMStrobe nodes are connected using a **simple 4-wire daisy-chain bus**:
+The TDMStrobe nodes are connected using a **differential RS-485 sync bus**, driven directly from MCU GPIO (no UART, no asynchronous protocol).
 
-* **DATA** — configuration bits (e.g. phase mask)
-* **CLOCK** — bit timing
-* **SYNC** — frame start trigger (critical for timing)
-* **GND** — common reference
+### Signals
 
-### Bus Topology
+The system uses a **single deterministic sync/command line**:
 
-The system uses a **daisy-chain wiring approach** for simplicity and minimal connectors:
+* **SYNC (RS-485 differential pair)** — carries frame start and encoded address/command bits
+* **GND** — reference (recommended for stability)
+
+> No separate DATA or CLOCK lines are used. All information is encoded into the SYNC signal.
+
+---
+
+## 🧠 Signal Concept
+
+The SYNC line is not just a trigger pulse, but a **deterministic bitstream**:
+
+```text
+Start | Address (4 bit) | Command (2 bit) | Stop
+```
+
+* **Start bit** — marks the beginning of a frame
+* **Address** — selects the target node
+* **Command** — defines the action (e.g. trigger, phase step)
+* **Stop bit** — marks the end of the frame
+
+A short **idle gap** is inserted between frames for reliable synchronization.
+
+---
+
+## 📡 Bus Topology
+
+The system uses a **daisy-chain RS-485 bus**:
 
 ```
 Master → Rig → Rig → Rig
 ```
 
-All signals are forwarded along the chain. Each node taps into the same shared lines.
+* All nodes are connected to the same differential pair
+* Only one node (Master) actively transmits
+* All other nodes act as receivers
 
 ---
 
-## ⚠️ Master / Slave Behavior (Critical)
+## ⚠️ Master / Slave Behavior (RS-485)
 
 At any given time:
 
-> **Exactly one node is allowed to actively drive the bus.**
+> **Exactly one node transmits on the RS-485 bus.**
 
 ### Default state (safe mode)
 
-All nodes are configured as:
+All nodes:
 
 ```
-DATA  → INPUT (high impedance)
-CLOCK → INPUT
-SYNC  → INPUT
+Transceiver: RECEIVE mode
+Driver (DE): disabled
 ```
-
-This ensures that no device drives the lines unintentionally.
 
 ---
 
-### When a node is selected as Master
+### Master node
 
-Only the selected master node switches to:
+Only the selected master:
 
 ```
-DATA  → OUTPUT
-CLOCK → OUTPUT
-SYNC  → OUTPUT
+Transceiver: TRANSMIT mode
+Driver (DE): enabled
 ```
 
-All other nodes **must remain in INPUT mode**.
+All slaves remain in receive mode.
 
 ---
 
 ### ⚠️ Why this is critical
 
-If two nodes drive the same line simultaneously:
+If multiple nodes transmit simultaneously:
 
-* electrical contention occurs (one drives HIGH, another LOW)
-* large currents may flow between GPIOs
-* signal integrity is destroyed
-* hardware damage is possible
-
-> **Therefore, slaves must never be configured as OUTPUT while another master is active.**
+* bus contention occurs
+* signal corruption
+* undefined behavior
 
 ---
 
 ### Safe Master Switching
 
-When changing the master node:
-
-1. Previous master:
-
-   ```
-   OUTPUT → INPUT
-   ```
-2. Short delay (a few µs)
-3. New master:
-
-   ```
-   INPUT → OUTPUT
-   ```
-
-This prevents bus contention.
+1. Previous master disables driver (DE = 0)
+2. Short delay (µs range)
+3. New master enables driver (DE = 1)
 
 ---
 
-## 🔧 Series Resistors (33Ω)
+## 🔧 Electrical Notes
 
-For a symmetrical modular design, each shared signal line includes a **33Ω series resistor on every module**:
-
-```text
-Driver → 33Ω → Wire → 33Ω → Input
-```
-
-This keeps the hardware identical across all nodes, improves signal integrity, and adds basic protection against contention or wiring mistakes.
-
-### Purpose
-
-* reduces signal ringing (especially on cables)
-* limits current during transient conflicts
-* improves signal integrity over 2–5 m cables
-* protects GPIO pins
+* Use **twisted pair (A/B)** for RS-485
+* Add **120Ω termination** at both ends of the bus
+* Optional **bias resistors** for defined idle level
+* Cable length: **up to ~5 m easily**, longer possible
 
 ---
 
 ## ⏱️ Deterministic Timing
 
-* **CLOCK + DATA** are used to distribute configuration bits
-* **SYNC is the authoritative timing signal**
-
-> All timing-critical actions (exposure, strobe) are triggered from the **SYNC edge**, not from DATA or CLOCK.
+> **SYNC is the only timing reference in the system.**
 
 Each node:
 
-1. receives configuration via DATA/CLOCK
-2. waits for SYNC
-3. executes its local phase-offset timing deterministically
+1. continuously listens to the SYNC bus
+2. detects **Start bit**
+3. reads full frame (8 bits total)
+4. checks **Address**
+5. executes command if matched
+
+```text
+WAIT Start
+READ Address
+READ Command
+READ Stop
+IF address == local:
+    EXECUTE
+```
+
+All time-critical actions (exposure, strobe) are derived from the **SYNC edge**, ensuring deterministic behavior.
+
+---
+
+## 🔥 Why no UART / no CLOCK / no DATA
+
+This design intentionally avoids:
+
+* UART (asynchronous, jitter-prone)
+* separate CLOCK lines (extra wiring)
+* multi-signal synchronization complexity
+
+Instead:
+
+* **single-wire deterministic protocol**
+* **hardware-timed decoding**
+* **minimal wiring**
+* **robust differential signaling**
 
 ---
 
 ## 🧠 Design Rationale
 
-This architecture intentionally avoids:
+This architecture intentionally uses:
 
-* complex bus protocols (CAN, RS485)
-* multi-master arbitration
-* software-dependent synchronization
+* **single-master broadcast**
+* **RS-485 differential robustness**
+* **custom synchronous bitstream (not UART)**
+* **local MCU timing**
 
-Instead it uses:
-
-* a **single-master broadcast model**
-* **hardware-level synchronization (SYNC)**
-* **local deterministic timing on each MCU**
-
-This results in:
+Result:
 
 * microsecond-level reproducibility
 * minimal latency
-* simple and debuggable behavior
+* robust over cable
+* simple and debuggable
 
 ---
 
 ## 💡 Notes
 
-* Cable lengths of **2–5 m** are supported with proper grounding and series resistors
-* RJ45/Cat5 is suitable for routing the 4-wire bus
-* For larger systems or harsher environments, differential signaling (e.g. RS485) may be considered
+* Cable lengths of **2–5 m are uncritical with RS-485**
+* RJ45/Cat5 works well (use one twisted pair for A/B)
+* No need for multiple signal lines (SYNC only)
+* System scales cleanly to multiple nodes
 
 ---
 
