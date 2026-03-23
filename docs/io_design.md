@@ -23,16 +23,18 @@ Main communication (parameters, mode, dimmer, delays, etc.)
 
 ---
 
-### RP2040 ↔ RP2040 (Daysi Chain)
+### RP2040 ↔ SP3485 (RS485)
 
 Used for module-to-module communication.
 
-| RP2040             | RP2040                | Description |
-|--------------------|-----------------------|-------------|
-| GND (8)            | GND (8)               | Common      |
-| GP6 (9) (via 33Ω)  | GP6 (9) (via 33Ω)     | DATA        |
-| GP7 (10) (via 33Ω) | GP7 (10) (via 33Ω)    | CLOCK       |
-| GP8 (11) (via 33Ω) | GP8 (11) (via 33Ω)    | SYNC        |
+| RP2040   | SP3485 | Description                           |
+| -------- | ------ | ------------------------------------- |
+| GND (8)  | GND    | Common ground                         |
+| 3V3 OUT  | VCC    | 3.3 V supply                          |
+| GP6 (9)  | DI     | Encoded SYNC / command output         |
+| GP7 (10) | DE     | Transmit enable (active high)         |
+| GP8 (11) | RO     | Bus receive input (optional)          |
+| GP9 (12) | /RE    | Receive enable, active low (optional) |
 
 ---
 
